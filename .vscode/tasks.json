@@ -7,7 +7,7 @@
       "type": "process",
       "args": [
         "build",
-        "${workspaceFolder}/SpeckleAutomateDotnetExample.csproj",
+        "${workspaceFolder}/SpeckleRegressionTester.csproj",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],
@@ -19,7 +19,7 @@
       "type": "process",
       "args": [
         "publish",
-        "${workspaceFolder}/SpeckleAutomateDotnetExample.csproj",
+        "${workspaceFolder}/SpeckleRegressionTester.csproj",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],
@@ -33,7 +33,7 @@
         "watch",
         "run",
         "--project",
-        "${workspaceFolder}/SpeckleAutomateDotnetExample.csproj"
+        "${workspaceFolder}/SpeckleRegressionTester.csproj"
       ],
       "problemMatcher": "$msCompile"
     }
