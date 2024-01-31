@@ -118,22 +118,20 @@ static class AutomateFunction
           {
             if (releaseObjectPropDict.ContainsKey(entry.Key))
             {
-              bool changed = false;
               try
               {
-                changed = entry.Value != releaseObjectPropDict[entry.Key];
-              }
-              catch { }
-              if (changed)
-              {
-                string diff =
-                  $"Property ({entry.Key}) changed from ({releaseObjectPropDict[entry.Key]}) to ({entry.Value})";
-                if (!diffDictionary.ContainsKey(entry.Key))
+                bool changed = !Equals(entry.Value, releaseObjectPropDict[entry.Key]);
+                if (changed)
                 {
-                  diffDictionary.Add(entry.Key, diff);
+                  string diff =
+                    $"Property ({entry.Key}) changed from ({releaseObjectPropDict[entry.Key]}) to ({entry.Value})";
+                  if (!diffDictionary.ContainsKey(entry.Key))
+                  {
+                    diffDictionary.Add(entry.Key, diff);
+                  }
                 }
               }
-
+              catch { }
               releaseObjectPropDict.Remove(entry.Key);
             }
             else
@@ -205,5 +203,10 @@ static class AutomateFunction
         $"Run passed with {addedCount} new objects, {modifiedCount} objects, and {unchangedCount} unchanged objects."
       );
     }
+  }
+
+  public static bool Equals<T>(T a, T b)
+  {
+    return EqualityComparer<T>.Default.Equals(a, b);
   }
 }
