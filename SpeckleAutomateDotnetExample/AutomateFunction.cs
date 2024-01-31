@@ -89,9 +89,9 @@ static class AutomateFunction
     Console.WriteLine($"Found {testCommitObjects.Count()} objects in release version");
 
     // compare objects
-    int addedCount = 0;
-    int modifiedCount = 0;
     int unchangedCount = 0;
+    var addedList = new List<Tuple<string, string>>();
+    var modifiedList = new List<Tuple<string, string, string>>();
     foreach (Base testObject in testCommitObjects)
     {
       if (
@@ -109,7 +109,6 @@ static class AutomateFunction
         // if ids are different, find property differences
         else
         {
-          modifiedCount++;
           var diffDictionary = new Dictionary<string, string>();
           Dictionary<string, object?> releaseObjectPropDict =
             releaseObject.GetMembers();
@@ -158,14 +157,17 @@ static class AutomateFunction
             var sb = new System.Text.StringBuilder();
             foreach (var entry in diffDictionary)
             {
-              sb.AppendLine($"{entry.Key}: {entry.Value}");
+              sb.AppendLine($"{entry.Key}: {entry.Value}. ");
             }
 
-            automationContext.AttachWarningToObjects(
-              MODIFIED,
-              new List<string>() { testObject.id },
-              sb.ToString()
+            modifiedList.Add(
+              new Tuple<string, string, string>(
+                testObject.id,
+                testObject.speckle_type,
+                sb.ToString()
+              )
             );
+            //automationContext.AttachWarningToObjects( MODIFIED, new List<string>() { testObject.id }, sb.ToString());
           }
         }
 
@@ -173,40 +175,88 @@ static class AutomateFunction
       }
       else
       {
-        addedCount++;
-        automationContext.AttachInfoToObjects(
-          ADDED,
-          new List<string>() { testObject.id }
+        //automationContext.AttachInfoToObjects(ADDED, new List<string>() { testObject.id });
+        addedList.Add(
+          new Tuple<string, string>(testObject.id, testObject.speckle_type)
         );
       }
     }
 
     // if there are any remaining release commit objects, this indicates missing objects in the test run.
-    // mark run as failed and list missing object details.
-    if (releaseCommitObjectsDict.Keys.Count > 0)
+    var deletedList = new List<Tuple<string, string>>();
+    foreach (var entry in releaseCommitObjectsDict)
+    {
+      deletedList.Add(new Tuple<string, string>(entry.Key, entry.Value.speckle_type));
+    }
+
+    // mark run failed if there are any added, modified, or deleted objects and report
+    if (addedList.Count + deletedList.Count + modifiedList.Count > 0)
     {
       automationContext.MarkRunFailed(
-        $"Missing {releaseCommitObjectsDict.Keys.Count} objects compared to the release commit."
+        $"Run failed due to {addedList.Count} ADDED, {modifiedList.Count} MODIFIED, and {deletedList.Count} DELETED objects compared to the release commit."
       );
 
-      foreach (var missingObject in releaseCommitObjectsDict)
-      {
-        Console.WriteLine(
-          $"Missing object info: id( {missingObject.Value.id} ), applicationId( {missingObject.Key} ), type( {missingObject.Value.speckle_type} )"
-        );
-      }
+      addedList.ForEach(
+        o => Console.WriteLine($"ADDED object: id( {o.Item1} ), type( {o.Item2} )")
+      );
+      deletedList.ForEach(
+        o => Console.WriteLine($"DELETED object: id( {o.Item1} ), type( {o.Item2} )")
+      );
+      modifiedList.ForEach(
+        o =>
+          Console.WriteLine(
+            $"MODIFIED object: id( {o.Item1} ), type( {o.Item2} ), changed props:( {o.Item3} )"
+          )
+      );
     }
-    // mark run as succeeded, noting any changed objects and added objects
     else
     {
       automationContext.MarkRunSuccess(
-        $"Run passed with {addedCount} new objects, {modifiedCount} objects, and {unchangedCount} unchanged objects."
+        $"Run passed with {unchangedCount} unchanged objects."
       );
     }
   }
 
   public static bool Equals<T>(T a, T b)
   {
-    return EqualityComparer<T>.Default.Equals(a, b);
+    switch (a)
+    {
+      case Base o:
+        return b is Base bBase ? o.id == bBase.id : false;
+      case List<object> aList:
+        if (b is List<object> bList && aList.Count == bList.Count)
+        {
+          for (int i = 0; i < aList.Count; i++)
+          {
+            if (!Equals(aList[i], bList[i]))
+            {
+              return false;
+            }
+          }
+          return true;
+        }
+        return false;
+      case Dictionary<string, object> aDictionary:
+        if (
+          b is Dictionary<string, object> bDictionary
+          && aDictionary.Count == bDictionary.Count
+        )
+        {
+          foreach (var entry in aDictionary)
+          {
+            if (
+              !bDictionary.ContainsKey(entry.Key)
+              || !Equals(entry.Value, bDictionary[entry.Key])
+            )
+            {
+              return false;
+            }
+          }
+          return true;
+        }
+        return false;
+      default:
+        return EqualityComparer<T>.Default.Equals(a, b);
+    }
   }
 }
