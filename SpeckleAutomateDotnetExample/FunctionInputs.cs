@@ -8,7 +8,7 @@ using System.ComponentModel.DataAnnotations;
 struct FunctionInputs
 {
   //[Required]
-  //public double Tolerance;
+  public double Tolerance;
 
   //public string Exclusions;
 }
