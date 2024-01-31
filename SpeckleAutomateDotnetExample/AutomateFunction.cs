@@ -37,6 +37,8 @@ static class AutomateFunction
       throw new Exception("Release branch has no commits");
     }
 
+    var tolerance = functionInputs.Tolerance;
+
     Console.WriteLine($"Comparing {testBranchName} against {releaseBranchName}");
 
     // get the test and release commits
