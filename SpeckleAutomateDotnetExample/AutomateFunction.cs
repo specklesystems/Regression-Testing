@@ -2,6 +2,7 @@ using Objects;
 using Speckle.Automate.Sdk;
 using Speckle.Automate.Sdk.Schema;
 using Speckle.Core.Api;
+using Speckle.Core.Credentials;
 using Speckle.Core.Models;
 using Speckle.Core.Models.Extensions;
 using Speckle.Core.Transports;
@@ -46,19 +47,25 @@ static class AutomateFunction
     Base? testingCommitObject = await automationContext.ReceiveVersion();
     Console.WriteLine("Received test version: " + testingCommitObject);
     Console.WriteLine("Receiving release version");
-    using ServerTransport transport =
-      new(
-        automationContext.SpeckleClient.Account,
-        automationContext.AutomationRunData.ProjectId
-      );
+    ServerTransport serverTransport = new ServerTransport(
+      automationContext.SpeckleClient.Account,
+      automationContext.AutomationRunData.ProjectId
+    );
     Base? releaseCommitObject = await Operations
-      .Receive(releaseCommit.referencedObject, transport)
+      .Receive(
+        (
+          await automationContext.SpeckleClient
+            .CommitGet(automationContext.AutomationRunData.ProjectId, releaseCommit.id)
+            .ConfigureAwait(continueOnCapturedContext: false)
+        ).referencedObject,
+        serverTransport,
+        new MemoryTransport()
+      )
       .ConfigureAwait(continueOnCapturedContext: false);
     if (releaseCommitObject == null)
     {
       throw new Exception("Commit root object was null");
     }
-
     Console.WriteLine("Received release version: " + releaseCommitObject);
 
     // flatten both commits
@@ -67,7 +74,10 @@ static class AutomateFunction
     var releaseCommitObjectsDict = new Dictionary<string, Base>();
     foreach (var releaseObject in releaseCommitObjects)
     {
-      if (!releaseCommitObjectsDict.ContainsKey(releaseObject.applicationId))
+      if (
+        releaseObject.applicationId != null
+        && !releaseCommitObjectsDict.ContainsKey(releaseObject.applicationId)
+      )
       {
         releaseCommitObjectsDict.Add(releaseObject.applicationId, releaseObject);
       }
@@ -84,7 +94,10 @@ static class AutomateFunction
     int unchangedCount = 0;
     foreach (Base testObject in testCommitObjects)
     {
-      if (releaseCommitObjectsDict.ContainsKey(testObject.applicationId))
+      if (
+        testObject.applicationId != null
+        && releaseCommitObjectsDict.ContainsKey(testObject.applicationId)
+      )
       {
         Base releaseObject = releaseCommitObjectsDict[testObject.applicationId];
 
@@ -98,8 +111,9 @@ static class AutomateFunction
         {
           modifiedCount++;
           var diffDictionary = new Dictionary<string, string>();
-          Dictionary<string, object> releaseObjectPropDict = releaseObject.GetMembers();
-          Dictionary<string, object> testObjectPropDict = testObject.GetMembers();
+          Dictionary<string, object?> releaseObjectPropDict =
+            releaseObject.GetMembers();
+          Dictionary<string, object?> testObjectPropDict = testObject.GetMembers();
           foreach (var entry in testObjectPropDict)
           {
             if (releaseObjectPropDict.ContainsKey(entry.Key))
