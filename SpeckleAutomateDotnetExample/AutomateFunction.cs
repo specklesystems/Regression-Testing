@@ -223,6 +223,11 @@ static class AutomateFunction
             $"MODIFIED object: id( {o.Item1} ), type( {o.Item2} ), changed props:( {o.Item3} )"
           )
       );
+
+      automationContext.AttachWarningToObjects(
+        MODIFIED,
+        modifiedList.Select(o => o.Item1).ToList()
+      );
     }
     else
     {
