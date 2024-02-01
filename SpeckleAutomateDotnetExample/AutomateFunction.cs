@@ -175,10 +175,14 @@ static class AutomateFunction
       }
       else
       {
-        //automationContext.AttachInfoToObjects(ADDED, new List<string>() { testObject.id });
-        addedList.Add(
-          new Tuple<string, string>(testObject.id, testObject.speckle_type)
-        );
+        // we're skipping objects without an applicationId for now, since we're doing so in the release commit
+        if (string.IsNullOrEmpty(testObject.applicationId))
+        {
+          //automationContext.AttachInfoToObjects(ADDED, new List<string>() { testObject.id });
+          addedList.Add(
+            new Tuple<string, string>(testObject.id, testObject.speckle_type)
+          );
+        }
       }
     }
 
