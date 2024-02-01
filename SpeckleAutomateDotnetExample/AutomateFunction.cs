@@ -176,7 +176,7 @@ static class AutomateFunction
       else
       {
         // we're skipping objects without an applicationId for now, since we're doing so in the release commit
-        if (string.IsNullOrEmpty(testObject.applicationId))
+        if (!string.IsNullOrEmpty(testObject.applicationId))
         {
           //automationContext.AttachInfoToObjects(ADDED, new List<string>() { testObject.id });
           addedList.Add(
