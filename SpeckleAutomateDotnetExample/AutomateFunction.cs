@@ -122,8 +122,19 @@ static class AutomateFunction
                 bool changed = !Equals(entry.Value, releaseObjectPropDict[entry.Key]);
                 if (changed)
                 {
-                  string diff =
-                    $"Property ({entry.Key}) changed from ({releaseObjectPropDict[entry.Key]}) to ({entry.Value})";
+                  object? releaseValue = releaseObjectPropDict[entry.Key];
+                  object? testValue = entry.Value;
+                  string diff = $"Property ({entry.Key}) changed";
+                  if (
+                    releaseValue is not null
+                    && testValue is not null
+                    && !releaseValue.GetType().Equals(testValue.GetType())
+                  )
+                  {
+                    diff +=
+                      $" from ({releaseObjectPropDict[entry.Key]}) to ({entry.Value})";
+                  }
+
                   if (!diffDictionary.ContainsKey(entry.Key))
                   {
                     diffDictionary.Add(entry.Key, diff);
