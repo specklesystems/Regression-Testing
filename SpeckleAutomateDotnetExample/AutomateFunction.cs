@@ -208,7 +208,7 @@ static class AutomateFunction
     if (addedList.Count + deletedList.Count + modifiedList.Count > 0)
     {
       automationContext.MarkRunFailed(
-        $"Run failed due to {addedList.Count} ADDED, {modifiedList.Count} MODIFIED, and {deletedList.Count} DELETED objects compared to the release commit."
+        $"Run failed due to {addedList.Count} ADDED, {modifiedList.Count} MODIFIED, and {deletedList.Count} DELETED objects compared to the release commit ({unchangedCount} objects were unchanged)."
       );
 
       addedList.ForEach(
