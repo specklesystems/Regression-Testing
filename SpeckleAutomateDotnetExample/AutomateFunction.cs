@@ -67,7 +67,7 @@ static class AutomateFunction
       out int releaseObjectCount
     );
     Console.WriteLine(
-      $"Found {releaseObjectCount} objects in RELEASE with {releaseCommitAppIdDict.Count} unique applicationIds and {releaseCommitSpeckleIdDict} unique speckle ids (for objects with no application id)."
+      $"Found {releaseObjectCount} objects in RELEASE with {releaseCommitAppIdDict.Count} unique applicationIds and {releaseCommitSpeckleIdDict.Count} unique speckle ids (for objects with no application id)."
     );
     Utils.CreateDictionaryFromBaseById(
       testingCommitObject,
@@ -76,7 +76,7 @@ static class AutomateFunction
       out int testingObjectCount
     );
     Console.WriteLine(
-      $"Found {testingObjectCount} objects in TESTING with {testingCommitAppIdDict.Count} unique applicationIds and {testingCommitSpeckleIdDict} unique speckle ids (for objects with no application id)."
+      $"Found {testingObjectCount} objects in TESTING with {testingCommitAppIdDict.Count} unique applicationIds and {testingCommitSpeckleIdDict.Count} unique speckle ids (for objects with no application id)."
     );
 
     // COMPARE COMMIT OBJECTS WITH APPLICATION IDS
