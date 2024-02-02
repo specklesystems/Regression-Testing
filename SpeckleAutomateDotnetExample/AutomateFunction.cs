@@ -1,17 +1,15 @@
 using Objects;
 using Speckle.Automate.Sdk;
-using Speckle.Automate.Sdk.Schema;
 using Speckle.Core.Api;
-using Speckle.Core.Credentials;
 using Speckle.Core.Models;
-using Speckle.Core.Models.Extensions;
-using Speckle.Core.Transports;
+using SpeckleAutomateDotnetExample;
 
 static class AutomateFunction
 {
-  public static string ADDED = "Added";
-  public static string MODIFIED = "Modified";
-  public static string DELETED = "Deleted";
+  public static string ADDED = "ADDED";
+  public static string MODIFIED = "MODIFIED";
+  public static string DELETED = "DELETED";
+  public static string UNCHANGED = "UNCHANGED";
 
   public static async Task Run(
     AutomationContext automationContext,
@@ -21,9 +19,12 @@ static class AutomateFunction
     Console.WriteLine("Starting execution");
     _ = typeof(ObjectsKit).Assembly; // INFO: Force objects kit to initialize
 
-    // get the test and release branch name
-    var testBranchName = automationContext.AutomationRunData.BranchName;
-    var releaseBranchName = testBranchName.Replace("/testing", "/release");
+    double tolerance = functionInputs.Tolerance;
+
+    // get the testing and release branches
+    string testBranchName = automationContext.AutomationRunData.BranchName;
+    string releaseBranchName = testBranchName.Replace("/testing", "/release");
+    Console.WriteLine($"Comparing {testBranchName} against {releaseBranchName}");
     Branch? releaseBranch = await automationContext.SpeckleClient
       .BranchGet(automationContext.AutomationRunData.ProjectId, releaseBranchName, 1)
       .ConfigureAwait(false);
@@ -32,251 +33,240 @@ static class AutomateFunction
       throw new Exception("Release branch was null");
     }
 
+    // get the release branch latest commit
     Commit releaseCommit = releaseBranch.commits.items.First();
     if (releaseCommit is null)
     {
       throw new Exception("Release branch has no commits");
     }
 
-    var tolerance = functionInputs.Tolerance;
-
-    Console.WriteLine($"Comparing {testBranchName} against {releaseBranchName}");
-
-    // get the test and release commits
+    // get the test and release commit base
     Console.WriteLine("Receiving test version");
-    Base? testingCommitObject = await automationContext.ReceiveVersion();
+    Base testingCommitObject = await automationContext.ReceiveVersion();
     Console.WriteLine("Received test version: " + testingCommitObject);
     Console.WriteLine("Receiving release version");
-    ServerTransport serverTransport = new ServerTransport(
-      automationContext.SpeckleClient.Account,
-      automationContext.AutomationRunData.ProjectId
+    Base releaseCommitObject = await Utils.RecieveVersionAsync(
+      releaseCommit.id,
+      automationContext
     );
-    Base? releaseCommitObject = await Operations
-      .Receive(
-        (
-          await automationContext.SpeckleClient
-            .CommitGet(automationContext.AutomationRunData.ProjectId, releaseCommit.id)
-            .ConfigureAwait(continueOnCapturedContext: false)
-        ).referencedObject,
-        serverTransport,
-        new MemoryTransport()
-      )
-      .ConfigureAwait(continueOnCapturedContext: false);
-    if (releaseCommitObject == null)
-    {
-      throw new Exception("Commit root object was null");
-    }
     Console.WriteLine("Received release version: " + releaseCommitObject);
 
-    // flatten both commits
-    IEnumerable<Base> releaseCommitObjects = releaseCommitObject.Flatten();
-    IEnumerable<Base> testCommitObjects = testingCommitObject.Flatten();
-    var releaseCommitObjectsDict = new Dictionary<string, Base>();
-    foreach (var releaseObject in releaseCommitObjects)
+    // Create dictionaries by appId (or speckle id if no appId exists) for the release and testing commits
+    // note that it is possible for multiple objects to have the same app id
+    // (eg mapped schema objects have the same id as their parent geometry)
+    // and it is also possible for multiple objects (with no app id) to have the same speckle id
+    // (eg the same mesh sent from gh multiple times)
+    Dictionary<string, List<Base>> releaseCommitAppIdDict = new();
+    Dictionary<string, List<Base>> releaseCommitSpeckleIdDict = new();
+    Dictionary<string, List<Base>> testingCommitAppIdDict = new();
+    Dictionary<string, List<Base>> testingCommitSpeckleIdDict = new();
+    Utils.CreateDictionaryFromBaseById(
+      releaseCommitObject,
+      out releaseCommitAppIdDict,
+      out releaseCommitSpeckleIdDict,
+      out int releaseObjectCount
+    );
+    Console.WriteLine(
+      $"Found {releaseObjectCount} objects in RELEASE with {releaseCommitAppIdDict.Count} unique applicationIds and {releaseCommitSpeckleIdDict} unique speckle ids (for objects with no application id)."
+    );
+    Utils.CreateDictionaryFromBaseById(
+      testingCommitObject,
+      out testingCommitAppIdDict,
+      out testingCommitSpeckleIdDict,
+      out int testingObjectCount
+    );
+    Console.WriteLine(
+      $"Found {testingObjectCount} objects in TESTING with {testingCommitAppIdDict.Count} unique applicationIds and {testingCommitSpeckleIdDict} unique speckle ids (for objects with no application id)."
+    );
+
+    // COMPARE COMMIT OBJECTS WITH APPLICATION IDS
+    // and store in hash lists where each object is (id, appId, type), and for modified, and additional string of property changes.
+    HashSet<Tuple<string, string?, string>> deletedAppIdObjects = new();
+    HashSet<Tuple<string, string?, string>> unchangedAppIdObjects = new();
+    HashSet<Tuple<string, string?, string>> addedAppIdObjects = new();
+    HashSet<Tuple<string, string?, string, string>> modifiedAppIdObjects = new();
+
+    // first find deleted objects in the testing commit and remove their keys from the release commit dict
+    foreach (string releaseAppId in releaseCommitAppIdDict.Keys)
     {
-      if (
-        releaseObject.applicationId != null
-        && !releaseCommitObjectsDict.ContainsKey(releaseObject.applicationId)
-      )
+      if (!testingCommitAppIdDict.ContainsKey(releaseAppId))
       {
-        releaseCommitObjectsDict.Add(releaseObject.applicationId, releaseObject);
+        releaseCommitAppIdDict[releaseAppId].ForEach(
+          o =>
+            deletedAppIdObjects.Add(
+              new Tuple<string, string?, string>(o.id, releaseAppId, o.speckle_type)
+            )
+        );
+        releaseCommitAppIdDict.Remove(releaseAppId);
       }
     }
 
-    Console.WriteLine(
-      $"Found {releaseCommitObjects.Count()} objects in release version"
-    );
-    Console.WriteLine($"Found {testCommitObjects.Count()} objects in release version");
-
-    // compare objects
-    int unchangedCount = 0;
-    var addedList = new List<Tuple<string, string>>();
-    var modifiedList = new List<Tuple<string, string, string>>();
-    foreach (Base testObject in testCommitObjects)
+    // then find unchanged, added, and modified objects by iterating through testing commit app ids
+    foreach (string testingAppId in testingCommitAppIdDict.Keys)
     {
-      if (
-        testObject.applicationId != null
-        && releaseCommitObjectsDict.ContainsKey(testObject.applicationId)
-      )
+      List<Base> testObjects = testingCommitAppIdDict[testingAppId];
+
+      // test for added objects
+      if (!releaseCommitAppIdDict.ContainsKey(testingAppId))
       {
-        Base releaseObject = releaseCommitObjectsDict[testObject.applicationId];
+        testObjects.ForEach(
+          o =>
+            addedAppIdObjects.Add(
+              new Tuple<string, string?, string>(o.id, testingAppId, o.speckle_type)
+            )
+        );
+      }
+      else
+      {
+        List<Base> releaseObjects = releaseCommitAppIdDict[testingAppId];
 
-        // if these have the same hash, no properties have changed
-        if (testObject.id == releaseObject.id)
+        // test for unchanged objects
+        // by filtering the testing and release objects with matching speckle ids
+        Utils
+          .FilterListsBySpeckleIdMatch(testObjects, releaseObjects)
+          .ForEach(o => unchangedAppIdObjects.Add(o));
+
+        // for remaining objects, determine deleted objects
+        // and then compare them in order (assume modified) and handle leftovers (added)
+        // this is imperfect, as there's a chance we are not comparing the correct objects.
+        if (releaseObjects.Count > testObjects.Count)
         {
-          unchangedCount++;
+          for (int i = releaseObjects.Count - 1; i >= testObjects.Count; i--)
+          {
+            deletedAppIdObjects.Add(
+              new Tuple<string, string?, string>(
+                releaseObjects[i].id,
+                testingAppId,
+                releaseObjects[i].speckle_type
+              )
+            );
+            releaseObjects.RemoveAt(i);
+          }
         }
-        // if ids are different, find property differences
-        else
+
+        for (int i = 0; i < testObjects.Count; i++)
         {
-          var diffDictionary = new Dictionary<string, string>();
-          Dictionary<string, object?> releaseObjectPropDict =
-            releaseObject.GetMembers();
-          Dictionary<string, object?> testObjectPropDict = testObject.GetMembers();
-          foreach (var entry in testObjectPropDict)
-          {
-            if (releaseObjectPropDict.ContainsKey(entry.Key))
-            {
-              try
-              {
-                bool changed = !Equals(entry.Value, releaseObjectPropDict[entry.Key]);
-                if (changed)
-                {
-                  object? releaseValue = releaseObjectPropDict[entry.Key];
-                  object? testValue = entry.Value;
-                  string diff = $"Property ({entry.Key}) changed";
-                  if (
-                    releaseValue is not null
-                    && testValue is not null
-                    && !releaseValue.GetType().Equals(testValue.GetType())
-                  )
-                  {
-                    diff +=
-                      $" from ({releaseObjectPropDict[entry.Key]}) to ({entry.Value})";
-                  }
+          Base testObject = testObjects[i];
 
-                  if (!diffDictionary.ContainsKey(entry.Key))
-                  {
-                    diffDictionary.Add(entry.Key, diff);
-                  }
-                }
-              }
-              catch { }
-              releaseObjectPropDict.Remove(entry.Key);
-            }
-            else
-            {
-              if (!diffDictionary.ContainsKey(entry.Key))
-              {
-                diffDictionary.Add(entry.Key, ADDED);
-              }
-            }
-          }
-
-          // check if there are any props left on the release object - these were missing in the test object
-          foreach (var entry in releaseObjectPropDict)
+          if (i < releaseObjectCount)
           {
-            if (!diffDictionary.ContainsKey(entry.Key))
-            {
-              diffDictionary.Add(entry.Key, DELETED);
-            }
-          }
+            Base releaseObject = releaseObjects[i];
 
-          // add the diff dict info to the object
-          if (diffDictionary.Count > 0)
-          {
+            // compare object properties to determine changes
+            List<string> addedProps = new();
+            List<string> deletedProps = new();
+            List<Tuple<string, string>> modifiedProps = new();
+            Utils.CompareBaseProperties(
+              testObject,
+              releaseObject,
+              out addedProps,
+              out deletedProps,
+              out modifiedProps
+            );
             var sb = new System.Text.StringBuilder();
-            foreach (var entry in diffDictionary)
-            {
-              sb.AppendLine($"{entry.Key}: {entry.Value}. ");
-            }
-
-            modifiedList.Add(
-              new Tuple<string, string, string>(
+            addedProps.ForEach(s => sb.AppendLine($"{ADDED} prop ({s})."));
+            deletedProps.ForEach(s => sb.AppendLine($"{DELETED} prop ({s})."));
+            modifiedProps.ForEach(
+              t => sb.AppendLine($"{MODIFIED} ({t.Item2}) of prop ({t.Item1})")
+            );
+            modifiedAppIdObjects.Add(
+              new Tuple<string, string?, string, string>(
                 testObject.id,
+                testObject.applicationId,
                 testObject.speckle_type,
                 sb.ToString()
               )
             );
-            //automationContext.AttachWarningToObjects( MODIFIED, new List<string>() { testObject.id }, sb.ToString());
+          }
+          // remaining test objects are considered added
+          else
+          {
+            addedAppIdObjects.Add(
+              new Tuple<string, string?, string>(
+                testObject.id,
+                testingAppId,
+                testObject.speckle_type
+              )
+            );
           }
         }
-
-        releaseCommitObjectsDict.Remove(testObject.applicationId);
-      }
-      else
-      {
-        // we're skipping objects without an applicationId for now, since we're doing so in the release commit
-        if (!string.IsNullOrEmpty(testObject.applicationId))
-        {
-          //automationContext.AttachInfoToObjects(ADDED, new List<string>() { testObject.id });
-          addedList.Add(
-            new Tuple<string, string>(testObject.id, testObject.speckle_type)
-          );
-        }
       }
     }
 
-    // if there are any remaining release commit objects, this indicates missing objects in the test run.
-    var deletedList = new List<Tuple<string, string>>();
-    foreach (var entry in releaseCommitObjectsDict)
+    // COMPARE COMMIT OBJECTS WITHOUT APPLICATION IDS USING SPECKLE IDS
+    // since we only have 1 parameter of comparison, we can rule out any matching speckle ids as unchanged.
+    // for all other objects, mark as modified, and indicate quantity of any added or deleted objects
+    // store modified in hash lists of (id, type)
+    HashSet<Tuple<string, string?, string>> unchangedSpeckleIdObjects = new();
+    HashSet<Tuple<string, string>> changedSpeckleIdObjects = new();
+
+    // first filter out matching speckle ids
+    List<Base> flattenedTestingSpeckleIdDict = testingCommitSpeckleIdDict.Values
+      .SelectMany(o => o)
+      .ToList();
+    List<Base> flattenedReleaseSpeckleIdDict = releaseCommitSpeckleIdDict.Values
+      .SelectMany(o => o)
+      .ToList();
+    Utils
+      .FilterListsBySpeckleIdMatch(
+        flattenedTestingSpeckleIdDict,
+        flattenedReleaseSpeckleIdDict
+      )
+      .ForEach(o => unchangedSpeckleIdObjects.Add(o));
+
+    // then store all remaining testing objects as changed
+    flattenedTestingSpeckleIdDict.ForEach(
+      o => changedSpeckleIdObjects.Add(new Tuple<string, string>(o.id, o.speckle_type))
+    );
+
+    // calculate count difference
+    int speckleIdObjectCountDifference =
+      flattenedTestingSpeckleIdDict.Count - flattenedReleaseSpeckleIdDict.Count;
+
+    // REPORT ALL DIFF RESULTS FOR APP IDS AND SPECKLE IDS
+    // mark run succeeded if there are no added, modified, or deleted app id objects, and no changed speckle id objects
+    // mark run failed otherwise
+    if (
+      addedAppIdObjects.Count
+        + deletedAppIdObjects.Count
+        + modifiedAppIdObjects.Count
+        + changedSpeckleIdObjects.Count
+      == 0
+    )
     {
-      deletedList.Add(new Tuple<string, string>(entry.Key, entry.Value.speckle_type));
-    }
-
-    // mark run failed if there are any added, modified, or deleted objects and report
-    if (addedList.Count + deletedList.Count + modifiedList.Count > 0)
-    {
-      automationContext.MarkRunFailed(
-        $"Run failed due to {addedList.Count} ADDED, {modifiedList.Count} MODIFIED, and {deletedList.Count} DELETED objects compared to the release commit ({unchangedCount} objects were unchanged)."
-      );
-
-      addedList.ForEach(
-        o => Console.WriteLine($"ADDED object: id( {o.Item1} ), type( {o.Item2} )")
-      );
-      deletedList.ForEach(
-        o => Console.WriteLine($"DELETED object: id( {o.Item1} ), type( {o.Item2} )")
-      );
-      modifiedList.ForEach(
-        o =>
-          Console.WriteLine(
-            $"MODIFIED object: id( {o.Item1} ), type( {o.Item2} ), changed props:( {o.Item3} )"
-          )
-      );
-
-      automationContext.AttachWarningToObjects(
-        MODIFIED,
-        modifiedList.Select(o => o.Item1).ToList()
-      );
+      automationContext.MarkRunSuccess($"Run passed with no changes to objects.");
     }
     else
     {
-      automationContext.MarkRunSuccess(
-        $"Run passed with {unchangedCount} unchanged objects."
+      automationContext.MarkRunFailed(
+        $"Run failed due to: {addedAppIdObjects.Count} {ADDED}, {modifiedAppIdObjects.Count} {MODIFIED}, and {deletedAppIdObjects.Count} {DELETED} objects WITH APP IDS, and {(speckleIdObjectCountDifference > 0 ? $"{speckleIdObjectCountDifference} {ADDED}" : $"{Math.Abs(speckleIdObjectCountDifference)} {DELETED}")} and {changedSpeckleIdObjects.Count} CHANGED objects WITHOUT APP IDS compared to the release commit. "
       );
-    }
-  }
 
-  public static bool Equals<T>(T a, T b)
-  {
-    switch (a)
-    {
-      case Base o:
-        return b is Base bBase ? o.id == bBase.id : false;
-      case List<object> aList:
-        if (b is List<object> bList && aList.Count == bList.Count)
-        {
-          for (int i = 0; i < aList.Count; i++)
-          {
-            if (!Equals(aList[i], bList[i]))
-            {
-              return false;
-            }
-          }
-          return true;
-        }
-        return false;
-      case Dictionary<string, object> aDictionary:
-        if (
-          b is Dictionary<string, object> bDictionary
-          && aDictionary.Count == bDictionary.Count
-        )
-        {
-          foreach (var entry in aDictionary)
-          {
-            if (
-              !bDictionary.ContainsKey(entry.Key)
-              || !Equals(entry.Value, bDictionary[entry.Key])
-            )
-            {
-              return false;
-            }
-          }
-          return true;
-        }
-        return false;
-      default:
-        return EqualityComparer<T>.Default.Equals(a, b);
+      foreach (var added in addedAppIdObjects)
+      {
+        Console.WriteLine(
+          $"{ADDED} {added.Item3} object: id( {added.Item1} ), appId: {added.Item2}"
+        );
+      }
+
+      foreach (var deleted in deletedAppIdObjects)
+      {
+        Console.WriteLine(
+          $"{DELETED} {deleted.Item3} object: id( {deleted.Item1} ), appId: {deleted.Item2}"
+        );
+      }
+
+      foreach (var modified in modifiedAppIdObjects)
+      {
+        Console.WriteLine(
+          $"{MODIFIED} {modified.Item3} object: id( {modified.Item1} ), appId: {modified.Item2}. Changed props: {modified.Item4}"
+        );
+      }
+
+      foreach (var changed in changedSpeckleIdObjects)
+      {
+        Console.WriteLine($"CHANGED {changed.Item2} object: id( {changed.Item1} )");
+      }
     }
   }
 }

@@ -7,7 +7,7 @@ using System.ComponentModel.DataAnnotations;
 /// are valid and match the required schema.
 struct FunctionInputs
 {
-  [Required]
+  //[Required]
   public double Tolerance;
 
   //public string Exclusions;
