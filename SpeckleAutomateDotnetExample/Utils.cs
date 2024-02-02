@@ -85,7 +85,7 @@ namespace SpeckleAutomateDotnetExample
             );
           }
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(commitObject.id))
         {
           if (speckleIdDict.ContainsKey(commitObject.id))
           {
