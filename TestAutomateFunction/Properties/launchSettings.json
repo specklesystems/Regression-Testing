@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "TestAutomateFunction": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "SPECKLE_TOKEN": "718d0650eea8038642850414e43bd81314d740359a",
+        "SPECKLE_SERVER_URL": "https://latest.speckle.dev/"
+      }
+    }
+  }
+}

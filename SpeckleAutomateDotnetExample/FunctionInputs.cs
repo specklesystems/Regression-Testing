@@ -5,10 +5,11 @@ using System.ComponentModel.DataAnnotations;
 /// </summary>
 /// This class is used to generate a JSON Schema to ensure that the user provided values
 /// are valid and match the required schema.
-struct FunctionInputs
+public struct FunctionInputs
 {
-  //[Required]
-  public double Tolerance;
-
-  //public string Exclusions;
+  /// <summary>
+  /// The name of the branch to compare against. This should be the full branch path.
+  /// </summary>
+  [Required]
+  public string DiffBranch;
 }

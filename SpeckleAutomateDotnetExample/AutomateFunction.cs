@@ -4,7 +4,7 @@ using Speckle.Core.Api;
 using Speckle.Core.Models;
 using SpeckleAutomateDotnetExample;
 
-static class AutomateFunction
+public static class AutomateFunction
 {
   public static string ADDED = "ADDED";
   public static string MODIFIED = "MODIFIED";
@@ -19,11 +19,9 @@ static class AutomateFunction
     Console.WriteLine("Starting execution");
     _ = typeof(ObjectsKit).Assembly; // INFO: Force objects kit to initialize
 
-    double tolerance = functionInputs.Tolerance;
-
     // get the testing and release branches
     string testBranchName = automationContext.AutomationRunData.BranchName;
-    string releaseBranchName = testBranchName.Replace("/testing", "/release");
+    string releaseBranchName = functionInputs.DiffBranch;
     Console.WriteLine($"Comparing {testBranchName} against {releaseBranchName}");
     Branch? releaseBranch = await automationContext.SpeckleClient
       .BranchGet(automationContext.AutomationRunData.ProjectId, releaseBranchName, 1)
@@ -37,7 +35,7 @@ static class AutomateFunction
     Commit releaseCommit = releaseBranch.commits.items.First();
     if (releaseCommit is null)
     {
-      throw new Exception("Release branch has no commits");
+      throw new Exception("Diff branch has no commits");
     }
 
     // get the test and release commit base
@@ -249,6 +247,12 @@ static class AutomateFunction
         );
       }
 
+      automationContext.AttachErrorToObjects(
+        "ADDED",
+        addedAppIdObjects.Select(o => o.Item1),
+        "added objects with an application Id"
+      );
+
       foreach (var deleted in deletedAppIdObjects)
       {
         Console.WriteLine(
@@ -256,17 +260,22 @@ static class AutomateFunction
         );
       }
 
-      foreach (var modified in modifiedAppIdObjects)
-      {
-        Console.WriteLine(
-          $"{MODIFIED} {modified.Item3} object: id( {modified.Item1} ), appId: {modified.Item2}. Changed props: {modified.Item4}"
-        );
-      }
+      automationContext.AttachErrorToObjects(
+        "MODIFIED",
+        modifiedAppIdObjects.Select(o => o.Item1),
+        "modified objects with an application Id"
+      );
 
       foreach (var changed in changedSpeckleIdObjects)
       {
         Console.WriteLine($"CHANGED {changed.Item2} object: id( {changed.Item1} )");
       }
+
+      automationContext.AttachErrorToObjects(
+        "CHANGED",
+        changedSpeckleIdObjects.Select(o => o.Item1),
+        "changed objects with no application Id"
+      );
     }
   }
 }
