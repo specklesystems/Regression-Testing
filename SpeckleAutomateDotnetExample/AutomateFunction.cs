@@ -247,11 +247,14 @@ public static class AutomateFunction
         );
       }
 
-      automationContext.AttachErrorToObjects(
-        "ADDED",
-        addedAppIdObjects.Select(o => o.Item1),
-        "added objects with an application Id"
-      );
+      if (addedAppIdObjects.Count > 0)
+      {
+        automationContext.AttachErrorToObjects(
+          "ADDED",
+          addedAppIdObjects.Select(o => o.Item1),
+          "added objects with an application Id"
+        );
+      }
 
       foreach (var deleted in deletedAppIdObjects)
       {
@@ -260,22 +263,35 @@ public static class AutomateFunction
         );
       }
 
-      automationContext.AttachErrorToObjects(
-        "MODIFIED",
-        modifiedAppIdObjects.Select(o => o.Item1),
-        "modified objects with an application Id"
-      );
+      foreach (var modified in modifiedAppIdObjects)
+      {
+        Console.WriteLine(
+          $"{MODIFIED} {modified.Item3} object: id( {modified.Item1} ), appId: {modified.Item2}, category: {modified.Item3}"
+        );
+      }
+
+      if (modifiedAppIdObjects.Count > 0)
+      {
+        automationContext.AttachErrorToObjects(
+          "MODIFIED",
+          modifiedAppIdObjects.Select(o => o.Item1),
+          "modified objects with an application Id"
+        );
+      }
 
       foreach (var changed in changedSpeckleIdObjects)
       {
         Console.WriteLine($"CHANGED {changed.Item2} object: id( {changed.Item1} )");
       }
 
-      automationContext.AttachErrorToObjects(
-        "CHANGED",
-        changedSpeckleIdObjects.Select(o => o.Item1),
-        "changed objects with no application Id"
-      );
+      if (changedSpeckleIdObjects.Count > 0)
+      {
+        automationContext.AttachErrorToObjects(
+          "CHANGED",
+          changedSpeckleIdObjects.Select(o => o.Item1),
+          "changed objects with no application Id"
+        );
+      }
     }
   }
 }
