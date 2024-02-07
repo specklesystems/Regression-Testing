@@ -266,7 +266,7 @@ public static class AutomateFunction
       foreach (var modified in modifiedAppIdObjects)
       {
         Console.WriteLine(
-          $"{MODIFIED} {modified.Item3} object: id( {modified.Item1} ), appId: {modified.Item2}, category: {modified.Item3}"
+          $"{MODIFIED} {modified.Item3} object: id( {modified.Item1} ), appId: {modified.Item2}, category: {modified.Item4}"
         );
       }
 
